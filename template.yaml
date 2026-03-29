@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: 'Yamanashi Tech Events Stream - EventBridge Producer for Yamanashi Tech Events'
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.12
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Stage name for deployment
+    
+  ApiUrl:
+    Type: String
+    Default: 'https://api.event.yamanashi.dev/events'
+    Description: Yamanashi Tech Events API URL
+    
+  LogLevel:
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+      - DEBUG
+      - INFO
+      - WARNING
+      - ERROR
+    Description: Lambda log level
+
+Resources:
+  TechEventsBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub '${AWS::StackName}-tech-events-bus'
+
+  PublishedEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-published-events'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: uid
+          AttributeType: S
+      KeySchema:
+        - AttributeName: uid
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  ProducerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-producer'
+      CodeUri: producer/
+      Handler: app.lambda_handler
+      Description: 'Yamanashi Tech Events Stream - fetches events and publishes to EventBridge'
+      Environment:
+        Variables:
+          API_URL: !Ref ApiUrl
+          EVENT_BUS_NAME: !Ref TechEventsBus
+          TABLE_NAME: !Ref PublishedEventsTable
+          LOG_LEVEL: !Ref LogLevel
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PublishedEventsTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref PublishedEventsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: !GetAtt TechEventsBus.Arn
+
+  ProducerScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-scheduler-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ProducerFunction.Arn
+
+  ProducerSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${AWS::StackName}-producer-schedule'
+      Description: 'Schedule to run Yamanashi Tech Events Stream every 5 minutes'
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      ScheduleExpression: 'rate(5 minutes)'
+      Target:
+        Arn: !GetAtt ProducerFunction.Arn
+        RoleArn: !GetAtt ProducerScheduleRole.Arn
+        Input: '{}'
+
+Outputs:
+  ProducerFunctionName:
+    Description: 'Producer Lambda Function Name'
+    Value: !Ref ProducerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-producer-function'
+
+  EventBusName:
+    Description: 'EventBridge Custom Bus Name'
+    Value: !Ref TechEventsBus
+    Export:
+      Name: !Sub '${AWS::StackName}-event-bus'
+
+  EventBusArn:
+    Description: 'EventBridge Custom Bus ARN'
+    Value: !GetAtt TechEventsBus.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-event-bus-arn'
+
+  PublishedEventsTableName:
+    Description: 'DynamoDB Table Name for Published Events'
+    Value: !Ref PublishedEventsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-published-events-table'
+
+  PublishedEventsTableArn:
+    Description: 'DynamoDB Table ARN for Published Events'
+    Value: !GetAtt PublishedEventsTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-published-events-table-arn'

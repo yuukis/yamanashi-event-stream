@@ -1,0 +1,28 @@
+# SAM Configuration File
+# Documentation: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "yamanashi-event-stream-dev"
+region = "ap-northeast-1"
+confirm_changeset = true
+capabilities = ["CAPABILITY_IAM"]
+parameter_overrides = [
+    "Stage=dev",
+    "ApiUrl=https://api.event.yamanashi.dev/events",
+    "LogLevel=INFO"
+]
+resolve_s3 = true
+
+[production.deploy.parameters]
+stack_name = "yamanashi-event-stream-prod" 
+region = "ap-northeast-1"
+confirm_changeset = false
+capabilities = ["CAPABILITY_IAM"]
+parameter_overrides = [
+    "Stage=production",
+    "ApiUrl=https://api.event.yamanashi.dev/events", 
+    "LogLevel=INFO"
+]
+resolve_s3 = true
