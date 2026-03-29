@@ -1,0 +1,5 @@
+# Test dependencies for the producer
+pytest>=7.0.0
+pytest-mock>=3.10.0
+moto[dynamodb,events]>=4.2.0
+requests-mock>=1.10.0
