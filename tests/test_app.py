@@ -22,7 +22,7 @@ os.environ.setdefault('AWS_SESSION_TOKEN', 'testing')
 
 # Import the module to test
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), 'producer'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'producer'))
 import app
 
 
