@@ -77,12 +77,18 @@ jobs:
 
       - name: SAM Deploy
         run: |
+          # Build parameter overrides
+          PARAMS="Stage=${{ steps.env.outputs.stage }} LogLevel=${{ steps.env.outputs.stage == 'production' && 'INFO' || 'DEBUG' }}"
+          
+          # Add Consumer Bus ARNs if configured
+          if [ -n "${{ secrets.CONSUMER_BUS_ARNS }}" ]; then
+            PARAMS="$PARAMS ConsumerBusArns=${{ secrets.CONSUMER_BUS_ARNS }}"
+          fi
+          
           sam deploy \
             --config-env ${{ steps.env.outputs.stage == 'production' && 'production' || 'default' }} \
             --no-fail-on-empty-changeset \
-            --parameter-overrides \
-              Stage=${{ steps.env.outputs.stage }} \
-              LogLevel=${{ steps.env.outputs.stage == 'production' && 'INFO' || 'DEBUG' }}
+            --parameter-overrides $PARAMS
 
       - name: Deployment summary
         run: |
@@ -91,4 +97,5 @@ jobs:
           echo "- **Stack**: ${{ steps.env.outputs.stack_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Region**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Auth**: OIDC Role" >> $GITHUB_STEP_SUMMARY
+          echo "- **Consumer Buses**: ${{ secrets.CONSUMER_BUS_ARNS && 'Configured (multiple)' || 'Not configured (local only)' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: ✅ Success (includes no-change deploys)" >> $GITHUB_STEP_SUMMARY

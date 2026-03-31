@@ -11,6 +11,7 @@ capabilities = ["CAPABILITY_NAMED_IAM"]
 parameter_overrides = [
     "Stage=dev",
     "ApiUrl=https://api.event.yamanashi.dev/events",
+    "ConsumerBusArns=",
     "LogLevel=INFO"
 ]
 resolve_s3 = true
@@ -22,7 +23,8 @@ confirm_changeset = false
 capabilities = ["CAPABILITY_NAMED_IAM"]
 parameter_overrides = [
     "Stage=production",
-    "ApiUrl=https://api.event.yamanashi.dev/events", 
+    "ApiUrl=https://api.event.yamanashi.dev/events",
+    "ConsumerBusArns=",
     "LogLevel=INFO"
 ]
 resolve_s3 = true

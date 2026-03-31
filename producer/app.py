@@ -28,7 +28,17 @@ eventbridge = boto3.client("events")
 # Environment variables
 API_URL = os.environ.get("API_URL", "https://api.event.yamanashi.dev/events")
 EVENT_BUS_NAME = os.environ.get("EVENT_BUS_NAME")
+CONSUMER_BUS_ARNS = os.environ.get("CONSUMER_BUS_ARNS", "")
 TABLE_NAME = os.environ.get("TABLE_NAME", "published_events")
+
+# Parse comma-separated Consumer Bus ARNs
+def get_consumer_bus_arns() -> List[str]:
+    """Parse and filter Consumer Bus ARNs from environment variable"""
+    if not CONSUMER_BUS_ARNS or not CONSUMER_BUS_ARNS.strip():
+        return []
+    
+    arns = [arn.strip() for arn in CONSUMER_BUS_ARNS.split(",")]
+    return [arn for arn in arns if arn]  # Filter out empty strings
 
 # DynamoDB table
 table = dynamodb.Table(TABLE_NAME)
@@ -241,7 +251,7 @@ def is_published(uid: str) -> bool:
 
 def publish_event(detail: Dict[str, Any]) -> None:
     """
-    Send event to EventBridge
+    Send event to EventBridge (local bus and optional consumer buses)
     
     Args:
         detail: EventBridge detail
@@ -255,11 +265,29 @@ def publish_event(detail: Dict[str, Any]) -> None:
         "Detail": json.dumps(detail)
     }
     
+    # Prepare entries for multiple buses
+    entries = []
+    
+    # 1. Local EventBridge bus
     if EVENT_BUS_NAME:
-        entry["EventBusName"] = EVENT_BUS_NAME
+        local_entry = entry.copy()
+        local_entry["EventBusName"] = EVENT_BUS_NAME
+        entries.append(local_entry)
+    
+    # 2. External Consumer EventBridge buses (if configured)
+    consumer_arns = get_consumer_bus_arns()
+    for consumer_arn in consumer_arns:
+        consumer_entry = entry.copy()
+        consumer_entry["EventBusName"] = consumer_arn
+        entries.append(consumer_entry)
+        logger.info(f"Publishing to consumer bus: {consumer_arn}")
+    
+    if not entries:
+        # Fallback to default bus if no specific bus is configured
+        entries.append(entry)
     
     try:
-        response = eventbridge.put_events(Entries=[entry])
+        response = eventbridge.put_events(Entries=entries)
         
         # Check EventBridge API response
         if response.get("FailedEntryCount", 0) > 0:
@@ -269,7 +297,9 @@ def publish_event(detail: Dict[str, Any]) -> None:
                     error_msg = f"EventBridge put_events failed: {entry_result.get('ErrorCode')} - {entry_result.get('ErrorMessage')}"
                     raise Exception(error_msg)
         
-        logger.debug(f"Successfully published event to EventBridge: uid={detail['uid']}")
+        local_count = 1 if EVENT_BUS_NAME else 0
+        consumer_count = len(consumer_arns)
+        logger.info(f"Successfully published event: uid={detail['uid']}, local_bus={local_count}, consumer_buses={consumer_count}")
         
     except Exception as e:
         logger.error(f"Failed to publish event to EventBridge: {e}")

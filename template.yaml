@@ -29,6 +29,14 @@ Parameters:
       - WARNING
       - ERROR
     Description: Lambda log level
+    
+  ConsumerBusArns:
+    Type: String
+    Default: ''
+    Description: External Consumer EventBridge Bus ARNs (comma-separated, optional). If empty, uses local bus only.
+
+Conditions:
+  HasConsumerBusArns: !Not [!Equals [!Ref ConsumerBusArns, '']]
 
 Resources:
   TechEventsBus:
@@ -61,6 +69,7 @@ Resources:
         Variables:
           API_URL: !Ref ApiUrl
           EVENT_BUS_NAME: !Ref TechEventsBus
+          CONSUMER_BUS_ARNS: !Ref ConsumerBusArns
           TABLE_NAME: !Ref PublishedEventsTable
           LOG_LEVEL: !Ref LogLevel
       Policies:
@@ -73,6 +82,17 @@ Resources:
               Action:
                 - events:PutEvents
               Resource: !GetAtt TechEventsBus.Arn
+        - !If
+            - HasConsumerBusArns
+            - Statement:
+                - Effect: Allow
+                  Action:
+                    - events:PutEvents
+                  Resource: "*"
+                  Condition:
+                    StringEquals:
+                      "events:source": "yamanashi.tech.events"
+            - !Ref AWS::NoValue
 
   ProducerScheduleRole:
     Type: AWS::IAM::Role
