@@ -1,200 +1,98 @@
-# Yamanashi Event Stream Producer
+# Yamanashi Tech Events Stream Producer
 
 A serverless AWS Lambda application that fetches tech events from Yamanashi region and publishes them to EventBridge for event-driven processing.
 
-## Features
+## ✨ Features
 
 - 🚀 **Serverless**: AWS Lambda with Python 3.12
-- 📡 **Event-Driven**: Publishes to EventBridge custom bus
-- 🗄️ **Deduplication**: DynamoDB tracks published events
-- ⏰ **Scheduled**: Runs automatically via EventBridge Scheduler  
-- 🧪 **Tested**: Comprehensive test suite (28 tests)
-- 🔄 **CI/CD**: GitHub Actions deployment pipeline
+- 📡 **Event-Driven**: EventBridge + multiple Consumer buses support  
+- 🗄️ **Deduplication**: DynamoDB prevents duplicate events
+- 🧪 **Testing**: Parameter-based test mode with dummy events
+- 🔄 **CI/CD**: Automated GitHub Actions deployment
 
-## Architecture
+## 🏗️ Architecture
 
 ```
-┌─────────────────┐    ┌──────────────┐    ┌─────────────────┐
-│  EventBridge    │    │    Lambda    │    │   Yamanashi     │
-│   Scheduler     ├───►│   Producer   ├───►│   Events API    │
-└─────────────────┘    └──────┬───────┘    └─────────────────┘
-                              │
-                              ▼
-                      ┌───────────────┐    ┌─────────────────┐
-                      │  EventBridge  │    │    DynamoDB     │
-                      │  Custom Bus   │    │ Published Events│
-                      └───────────────┘    └─────────────────┘
+EventBridge Scheduler → Lambda Producer → Yamanashi Tech Events API
+                             ↓
+                      EventBridge Bus(es) + DynamoDB
 ```
 
-## Project Structure
+## 🚀 Quick Start
+
+### Prerequisites
+- AWS CLI configured
+- Python 3.12+ 
+- SAM CLI
+
+```bash
+# Setup
+git clone <repository-url>
+cd yamanashi-event-stream
+pip install -r requirements.txt -r tests/requirements.txt
+
+# Test
+python -m pytest tests/ -v
+
+# Deploy
+sam build && sam deploy
+```
+
+## 🧪 Consumer Testing
+
+Test Consumer applications with dummy events:
+
+```bash
+# Test mode - single execution
+echo '{"test_mode": true}' | sam local invoke ProducerFunction
+
+# Production deployment with Consumers
+sam deploy --parameter-overrides ConsumerBusArns="arn:aws:events:region:account:event-bus/consumer-1,arn:aws:events:region:account:event-bus/consumer-2"
+```
+
+**Test Mode Behavior:**
+- Generates 1 dummy event: "【テスト用】山梨Tech勉強会"
+- Publishes to local bus + all configured Consumer buses
+- No external API calls
+- Automatic return to normal mode after execution
+
+## 📁 Project Structure
 
 ```
 yamanashi-event-stream/
-├── .github/workflows/
-│   └── deploy.yml         # CI/CD pipeline
-├── producer/
-│   ├── app.py             # Lambda function
-│   └── requirements.txt   # Lambda dependencies
-├── tests/
-│   ├── test_app.py        # Test suite  
-│   └── requirements.txt   # Test dependencies
-├── template.yaml          # SAM template
-├── samconfig.toml         # SAM configuration
-└── requirements.txt       # Development dependencies
+├── producer/app.py          # Main Lambda function
+├── tests/test_app.py        # Test suite (38 tests)
+├── template.yaml            # AWS SAM template
+├── .github/workflows/       # CI/CD pipeline
+└── samconfig.toml          # Deployment config
 ```
 
-## Quick Start
+## 🔧 Environment Configuration
 
-### Prerequisites
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `Stage` | Environment name | `dev`, `production` |
+| `ConsumerBusArns` | External Consumer buses (comma-separated) | `arn:aws:events:...` |
+| `LogLevel` | Logging level | `INFO`, `DEBUG` |
 
-- AWS CLI configured
-- Python 3.12+
-- SAM CLI
-
-### Development Setup
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd yamanashi-event-stream
-
-# Install dependencies
-pip install -r requirements.txt -r tests/requirements.txt
-
-# Run tests
-python -m pytest tests/ -v
-```
-
-### Local Testing
+## 📊 Monitoring
 
 ```bash
-# Build Lambda
-sam build
-
-# Invoke locally
-sam local invoke ProducerFunction
-
 # View logs
 sam logs -n ProducerFunction --stack-name yamanashi-event-stream-dev --tail
+
+# Check published events
+aws dynamodb scan --table-name yamanashi-event-stream-dev-published-events
 ```
 
-### Deploy
-
-```bash
-# Development environment
-sam build
-sam deploy --no-fail-on-empty-changeset
-
-# Production environment  
-sam deploy --config-env production --no-fail-on-empty-changeset
-```
-
-## GitHub Actions Deployment
-
-### Setup AWS Credentials
-
-**Option 1: IAM User (Simple)**
-```bash
-# Create IAM user with deployment permissions
-aws iam create-user --user-name github-actions-deployer
-
-# Set GitHub Secrets:
-# - AWS_ACCESS_KEY_ID
-# - AWS_SECRET_ACCESS_KEY
-```
-
-**Option 2: OIDC (Recommended)**
-```bash
-# Create OIDC provider and IAM role
-aws iam create-open-id-connect-provider \
-  --url https://token.actions.githubusercontent.com \
-  --client-id-list sts.amazonaws.com
-
-# Set GitHub Secret:
-# - AWS_ROLE_TO_ASSUME
-```
-
-### Deployment Workflow
+## 🚢 Deployment
 
 - **`main` branch** → Production environment
-- **`develop` branch** → Development environment
-- **Pull Requests** → Run tests only
+- **`develop` branch** → Development environment  
+- **Pull Requests** → Tests only
 
-## AWS Resources
+Deployment uses GitHub Actions with AWS OIDC authentication.
 
-| Environment | Stack Name | Resources |
-|-------------|------------|-----------|
-| Development | `yamanashi-event-stream-dev` | Lambda, EventBridge, DynamoDB |
-| Production | `yamanashi-event-stream-prod` | Lambda, EventBridge, DynamoDB |
+---
 
-## Monitoring
-
-```bash
-# View CloudWatch logs
-sam logs -n ProducerFunction --stack-name <stack-name> --tail
-
-# Check DynamoDB records
-aws dynamodb scan --table-name <stack-name>-published-events --max-items 10
-
-# List EventBridge buses
-aws events list-event-buses --query 'EventBuses[?contains(Name, `yamanashi`)]'
-```
-
-## Consumer Testing
-
-For testing Consumer applications, the Producer can generate dummy events without calling the real API.
-
-### Send Dummy Events to Multiple Consumers
-
-**Simple Test (Parameter Override):**
-```bash
-# Deploy with test mode enabled (single consumer)
-sam deploy \
-  --parameter-overrides TestMode=true ConsumerBusArns=arn:aws:events:region:account:event-bus/consumer-bus
-
-# Deploy with test mode enabled (multiple consumers) 
-sam deploy \
-  --parameter-overrides TestMode=true ConsumerBusArns="arn:aws:events:region:account:event-bus/consumer-1,arn:aws:events:region:account:event-bus/consumer-2"
-
-# Invoke Lambda (sends dummy event immediately)  
-aws lambda invoke \
-  --function-name yamanashi-event-stream-prod-producer \
-  --region ap-northeast-1 \
-  response.json && cat response.json
-```
-
-**GitHub Actions Test:**
-```bash
-# Set GitHub Secret for multiple consumers:
-# CONSUMER_BUS_ARNS=arn:aws:events:region:account:event-bus/consumer-1,arn:aws:events:region:account:event-bus/consumer-2
-# Then deploy with TestMode=true in workflow
-```
-
-### Generated Dummy Event
-
-Test mode generates 1 dummy event:
-
-- **🧪 Consumer Test Event**
-  - UID: `test_{timestamp}` (unique every run)
-  - Hash Tag: `#ConsumerTest`
-  - Location: Virtual Event / Online
-  - Purpose: Validate Consumer EventBridge processing
-
-### Multiple Consumer Bus Testing
-
-If `CONSUMER_BUS_ARNS` is configured, the dummy event will be sent to:
-- **Local bus** (for internal use)
-- **All configured Consumer buses** (comma-separated ARNs)
-
-Use test mode to validate your Consumers without impacting production data!
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes with tests
-4. Submit a pull request
-
-## License
-
-Apache 2.0 License - see [LICENSE](LICENSE) file for details.
+**License:** Apache 2.0
