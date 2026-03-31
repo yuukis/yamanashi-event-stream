@@ -67,10 +67,19 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     }
     
     try:
-        # 1. Fetch event list
-        events = fetch_events()
+        # Check for test mode
+        test_mode = event.get("test_mode", False)
+        
+        # 1. Fetch event list (real or dummy)
+        if test_mode:
+            logger.info("Running in TEST MODE - using dummy events for Consumer testing")
+            events = generate_dummy_events()
+            stats["test_mode"] = True
+        else:
+            events = fetch_events()
+            
         stats["fetched_count"] = len(events)
-        logger.info(f"Fetched {len(events)} events from API")
+        logger.info(f"Fetched {len(events)} events from {'dummy data' if test_mode else 'API'}")
         
         # 2. Process each event
         for raw_event in events:
@@ -172,6 +181,38 @@ def fetch_events() -> List[Dict[str, Any]]:
     except requests.RequestException as e:
         logger.error(f"Failed to fetch events from API: {e}")
         raise
+
+
+def generate_dummy_events() -> List[Dict[str, Any]]:
+    """
+    Generate single dummy event for Consumer testing
+    
+    Returns:
+        List containing one dummy event in same format as API response
+    """
+    current_time = datetime.now(timezone.utc).isoformat()
+    
+    dummy_event = {
+        "uid": f"dummy_test_{int(datetime.now().timestamp())}",
+        "event_id": 999999,
+        "title": "【テスト用】山梨Tech勉強会",
+        "catch": "動作確認用ダミーイベントです",
+        "event_url": "https://example.com/test-event",
+        "hash_tag": "#山梨Techテスト",
+        "started_at": "2026-04-15T19:00:00+09:00",
+        "ended_at": "2026-04-15T21:00:00+09:00",
+        "updated_at": current_time,
+        "open_status": "open",
+        "owner_name": "テスト",
+        "place": "テスト会館",
+        "address": "山梨県甲府市テスト",
+        "group_key": "yamanashi-tech-test",
+        "group_name": "テスト",
+        "group_url": "https://example.com/yamanashi-tech"
+    }
+    
+    logger.info("Generated 1 dummy event for testing")
+    return [dummy_event]
 
 
 def validate_event(event: Dict[str, Any]) -> bool:

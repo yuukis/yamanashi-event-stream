@@ -204,6 +204,18 @@ class TestFetchEvents:
         with pytest.raises(ValueError, match="Expected list in API response"):
             app.fetch_events()
 
+    def test_generate_dummy_events(self):
+        """Test dummy event generation"""
+        events = app.generate_dummy_events()
+        
+        assert len(events) == 1  # Now expecting 1 dummy event
+        event = events[0]
+        assert event["uid"].startswith("dummy_test_")
+        assert "テスト用" in event["title"]
+        assert "started_at" in event
+        assert "updated_at" in event
+        assert event["open_status"] == "open"
+
 
 class TestIsPublished:
     """Test published status checking"""
@@ -296,6 +308,129 @@ class TestPublishEvent:
 
         with pytest.raises(Exception, match="EventBridge put_events failed"):
             app.publish_event(detail)
+
+    @patch('app.eventbridge')
+    def test_publish_event_with_multiple_consumer_buses(self, mock_eventbridge):
+        """Test EventBridge publish to multiple consumer buses"""
+        consumer_arns = [
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-bus-1",
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-bus-2"
+        ]
+        
+        with patch.dict(os.environ, {
+            'EVENT_BUS_NAME': 'local-bus',
+            'CONSUMER_BUS_ARNS': ','.join(consumer_arns)
+        }):
+            # Reinitialize module variables
+            app.EVENT_BUS_NAME = 'local-bus'
+            app.CONSUMER_BUS_ARNS = ','.join(consumer_arns)
+            
+            mock_eventbridge.put_events.return_value = {
+                "FailedEntryCount": 0,
+                "Entries": [
+                    {"EventId": "local-event-id"},
+                    {"EventId": "consumer-1-event-id"},
+                    {"EventId": "consumer-2-event-id"}
+                ]
+            }
+
+            detail = {"uid": "test-uid-123", "title": "Test Event"}
+            app.publish_event(detail)
+
+            mock_eventbridge.put_events.assert_called_once()
+            call_args = mock_eventbridge.put_events.call_args[1]
+            entries = call_args["Entries"]
+            
+            # Should have three entries: local + 2 consumers
+            assert len(entries) == 3
+            
+            # Check local bus entry
+            local_entry = entries[0]
+            assert local_entry["EventBusName"] == "local-bus"
+            assert local_entry["Source"] == "yamanashi.tech.events"
+            
+            # Check first consumer bus entry
+            consumer_entry_1 = entries[1]
+            assert consumer_entry_1["EventBusName"] == consumer_arns[0]
+            assert consumer_entry_1["Source"] == "yamanashi.tech.events"
+            
+            # Check second consumer bus entry
+            consumer_entry_2 = entries[2]
+            assert consumer_entry_2["EventBusName"] == consumer_arns[1]
+            assert consumer_entry_2["Source"] == "yamanashi.tech.events"
+
+    @patch('app.eventbridge')
+    def test_publish_event_consumer_buses_only(self, mock_eventbridge):
+        """Test EventBridge publish to consumer buses only (no local bus)"""
+        consumer_arns = [
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-bus-1",
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-bus-2"  
+        ]
+        
+        with patch.dict(os.environ, {
+            'CONSUMER_BUS_ARNS': ','.join(consumer_arns)
+        }, clear=True):
+            # Reinitialize module variables
+            app.EVENT_BUS_NAME = None
+            app.CONSUMER_BUS_ARNS = ','.join(consumer_arns)
+            
+            mock_eventbridge.put_events.return_value = {
+                "FailedEntryCount": 0,
+                "Entries": [
+                    {"EventId": "consumer-1-event-id"},
+                    {"EventId": "consumer-2-event-id"}
+                ]
+            }
+
+            detail = {"uid": "test-uid-123", "title": "Test Event"}
+            app.publish_event(detail)
+
+            call_args = mock_eventbridge.put_events.call_args[1]
+            entries = call_args["Entries"]
+            
+            # Should have two entries: consumers only
+            assert len(entries) == 2
+            assert entries[0]["EventBusName"] == consumer_arns[0]
+            assert entries[1]["EventBusName"] == consumer_arns[1]
+
+    def test_get_consumer_bus_arns_empty(self):
+        """Test parsing empty Consumer Bus ARNs"""
+        with patch.dict(os.environ, {'CONSUMER_BUS_ARNS': ''}, clear=True):
+            app.CONSUMER_BUS_ARNS = ''
+            arns = app.get_consumer_bus_arns()
+            assert arns == []
+    
+    def test_get_consumer_bus_arns_single(self):
+        """Test parsing single Consumer Bus ARN"""
+        arn = "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-bus"
+        with patch.dict(os.environ, {'CONSUMER_BUS_ARNS': arn}):
+            app.CONSUMER_BUS_ARNS = arn
+            arns = app.get_consumer_bus_arns()
+            assert arns == [arn]
+    
+    def test_get_consumer_bus_arns_multiple(self):
+        """Test parsing multiple Consumer Bus ARNs"""
+        arns_str = "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-1,arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-2"
+        expected_arns = [
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-1",
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-2"
+        ]
+        with patch.dict(os.environ, {'CONSUMER_BUS_ARNS': arns_str}):
+            app.CONSUMER_BUS_ARNS = arns_str
+            arns = app.get_consumer_bus_arns()
+            assert arns == expected_arns
+
+    def test_get_consumer_bus_arns_with_spaces(self):
+        """Test parsing Consumer Bus ARNs with spaces"""
+        arns_str = " arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-1 , arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-2 "
+        expected_arns = [
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-1",
+            "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-2"
+        ]
+        with patch.dict(os.environ, {'CONSUMER_BUS_ARNS': arns_str}):
+            app.CONSUMER_BUS_ARNS = arns_str
+            arns = app.get_consumer_bus_arns()
+            assert arns == expected_arns
 
 
 class TestMarkPublished:
@@ -566,17 +701,109 @@ class TestIntegration:
         # Verify results
         assert result["statusCode"] == 200
         body = json.loads(result["body"])
-        assert body["fetched_count"] == 1
+        assert body["fetched_count"] == 1  # Normal API returns 1 event (from mock)
         assert body["published_count"] == 1
         assert body["already_published_count"] == 0
         assert body["skipped_count"] == 0
         assert body["error_count"] == 0
 
-        # Verify EventBridge was called
+        # Verify EventBridge was called once
         mock_eventbridge.put_events.assert_called_once()
         
         # Verify DynamoDB was called to mark as published
         mock_table.put_item.assert_called_once()
+
+
+class TestConsumerTestMode:
+    """Test Consumer test mode functionality"""
+
+    @patch('app.table')
+    @patch('app.eventbridge')
+    def test_lambda_handler_test_mode(self, mock_eventbridge, mock_table):
+        """Test Lambda execution in test mode with dummy events"""
+        # Setup EventBridge response
+        mock_eventbridge.put_events.return_value = {
+            "FailedEntryCount": 0,
+            "Entries": [{"EventId": "dummy-event-id-1"}]
+        }
+        
+        # Setup DynamoDB response (events not published)
+        mock_table.get_item.return_value = {}
+
+        # Execute in test mode
+        result = app.lambda_handler({"test_mode": True}, None)
+
+        # Verify results
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["fetched_count"] == 1  # Should generate 1 dummy event
+        assert body["test_mode"] is True
+        assert body["published_count"] == 1
+        
+        # Verify EventBridge was called once for the dummy event
+        mock_eventbridge.put_events.assert_called_once()
+
+    def test_generate_dummy_events(self):
+        """Test dummy event generation"""
+        dummy_events = app.generate_dummy_events()
+        
+        # Verify event count
+        assert len(dummy_events) == 1  # Now expecting 1 dummy event
+        
+        # Verify event structure for the dummy event
+        event = dummy_events[0]
+        assert "uid" in event
+        assert event["uid"].startswith("dummy_test_")
+        assert event["title"].startswith("【テスト用】")
+        assert event["event_url"] == "https://example.com/test-event"
+        assert "#山梨Techテスト" in event["hash_tag"]
+        
+        # Verify required fields are present
+        required_fields = ["uid", "title", "event_url", "started_at", "updated_at"]
+        for field in required_fields:
+            assert field in event
+            assert event[field] is not None
+
+    @patch('app.table')
+    @patch('app.eventbridge')
+    def test_test_mode_with_consumer_bus(self, mock_eventbridge, mock_table):
+        """Test test mode with consumer bus configured"""
+        with patch.dict(os.environ, {
+            'EVENT_BUS_NAME': 'local-bus',
+            'CONSUMER_BUS_ARNS': 'arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-test,arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-test2'
+        }):
+            # Reinitialize module variables
+            app.EVENT_BUS_NAME = 'local-bus'
+            app.CONSUMER_BUS_ARNS = 'arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-test,arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-test2'
+            
+            mock_eventbridge.put_events.return_value = {
+                "FailedEntryCount": 0,
+                "Entries": [
+                    {"EventId": "event-local"}, {"EventId": "event-consumer1"}, {"EventId": "event-consumer2"}
+                ]
+            }
+            mock_table.get_item.return_value = {}
+
+            # Execute in test mode
+            result = app.lambda_handler({"test_mode": True}, None)
+
+            assert result["statusCode"] == 200
+            body = json.loads(result["body"])
+            assert body["test_mode"] is True
+            assert body["published_count"] == 1  # Now expecting 1 dummy event
+            
+            # Should call EventBridge once (for single dummy event)
+            # Call should have 3 entries (local + 2 consumers)
+            mock_eventbridge.put_events.assert_called_once()
+            
+            # Verify call has entries for local and consumer buses
+            call_args = mock_eventbridge.put_events.call_args[1]
+            entries = call_args["Entries"]
+            assert len(entries) == 3  # local + 2 consumers
+            
+            bus_names = [entry["EventBusName"] for entry in entries]
+            assert "local-bus" in bus_names
+            assert "arn:aws:events:ap-northeast-1:123456789012:event-bus/consumer-test" in bus_names
 
 
 if __name__ == "__main__":

@@ -140,6 +140,54 @@ aws dynamodb scan --table-name <stack-name>-published-events --max-items 10
 aws events list-event-buses --query 'EventBuses[?contains(Name, `yamanashi`)]'
 ```
 
+## Consumer Testing
+
+For testing Consumer applications, the Producer can generate dummy events without calling the real API.
+
+### Send Dummy Events to Multiple Consumers
+
+**Simple Test (Parameter Override):**
+```bash
+# Deploy with test mode enabled (single consumer)
+sam deploy \
+  --parameter-overrides TestMode=true ConsumerBusArns=arn:aws:events:region:account:event-bus/consumer-bus
+
+# Deploy with test mode enabled (multiple consumers) 
+sam deploy \
+  --parameter-overrides TestMode=true ConsumerBusArns="arn:aws:events:region:account:event-bus/consumer-1,arn:aws:events:region:account:event-bus/consumer-2"
+
+# Invoke Lambda (sends dummy event immediately)  
+aws lambda invoke \
+  --function-name yamanashi-event-stream-prod-producer \
+  --region ap-northeast-1 \
+  response.json && cat response.json
+```
+
+**GitHub Actions Test:**
+```bash
+# Set GitHub Secret for multiple consumers:
+# CONSUMER_BUS_ARNS=arn:aws:events:region:account:event-bus/consumer-1,arn:aws:events:region:account:event-bus/consumer-2
+# Then deploy with TestMode=true in workflow
+```
+
+### Generated Dummy Event
+
+Test mode generates 1 dummy event:
+
+- **🧪 Consumer Test Event**
+  - UID: `test_{timestamp}` (unique every run)
+  - Hash Tag: `#ConsumerTest`
+  - Location: Virtual Event / Online
+  - Purpose: Validate Consumer EventBridge processing
+
+### Multiple Consumer Bus Testing
+
+If `CONSUMER_BUS_ARNS` is configured, the dummy event will be sent to:
+- **Local bus** (for internal use)
+- **All configured Consumer buses** (comma-separated ARNs)
+
+Use test mode to validate your Consumers without impacting production data!
+
 ## Contributing
 
 1. Fork the repository
