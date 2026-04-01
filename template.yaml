@@ -37,12 +37,18 @@ Parameters:
 
 Conditions:
   HasConsumerBusArns: !Not [!Equals [!Ref ConsumerBusArns, '']]
+  IsProduction: !Equals [!Ref Stage, 'production']
 
 Resources:
   TechEventsBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: !Sub '${AWS::StackName}-tech-events-bus'
+      Name: !Sub 
+        - 'yamanashi-events${StageSuffix}'
+        - StageSuffix: !If 
+            - IsProduction
+            - ''
+            - !Sub '-${Stage}'
 
   PublishedEventsTable:
     Type: AWS::DynamoDB::Table

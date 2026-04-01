@@ -56,7 +56,30 @@ sam deploy --parameter-overrides ConsumerBusArns="arn:aws:events:region:account:
 - No external API calls
 - Automatic return to normal mode after execution
 
-## 📁 Project Structure
+## � EventBridge Integration
+
+**For Consumer Applications:**
+
+| Environment | EventBus Name | Event Source | Detail Type |
+|-------------|---------------|--------------|-------------|
+| Development | `yamanashi-events-dev` | `yamanashi.tech.events` | `event.created` |
+| Production | `yamanashi-events` | `yamanashi.tech.events` | `event.created` |
+
+**Consumer Setup Example:**
+```yaml
+EventRule:
+  Type: AWS::Events::Rule
+  Properties:
+    EventBusName: yamanashi-events  # or yamanashi-events-dev
+    EventPattern:
+      source: ["yamanashi.tech.events"]
+      detail-type: ["event.created"]
+    Targets:
+      - Arn: !GetAtt YourConsumerFunction.Arn
+        Id: "YamanashiEventConsumer"
+```
+
+## �📁 Project Structure
 
 ```
 yamanashi-event-stream/
